@@ -474,7 +474,6 @@ class FundScraper:
         page = 1
         
         # 计算需要抓取的页数（每页最多49条记录）
-        # 假设每年252个交易日，pages需要能覆盖days天数的交易日
         max_pages = max(1, (days // 49) + 2)
         
         try:
@@ -488,79 +487,108 @@ class FundScraper:
                 
                 response = self._request(url, params=params)
                 if not response:
+                    print(f"请求失败: {url}")
                     break
                 
-                # 解析JSON响应
-                try:
-                    data = response.json()
-                except json.JSONDecodeError:
-                    print(f"无法解析基金 {fund_code} 的历史数据")
+                # API返回的是JavaScript变量，格式为: var apidata={ content:"...", records:XX, pages:XX}
+                # 需要提取HTML表格并解析
+                
+                # 提取HTML内容
+                content_match = re.search(r'content:"(.*?)",records', response.text, re.DOTALL)
+                if not content_match:
+                    print(f"基金 {fund_code} 第{page}页: 未找到content字段")
                     break
                 
-                # 提取净值数据
-                datas = data.get('Data', {}).get('LSJZList', [])
-                if not datas:
+                html_content = content_match.group(1)
+                
+                # 使用BeautifulSoup解析表格
+                soup = BeautifulSoup(html_content, 'lxml')
+                table = soup.find('table')
+                
+                if not table:
+                    print(f"基金 {fund_code} 第{page}页: 未找到表格")
                     break
                 
-                for record in datas:
+                tbody = table.find('tbody')
+                if not tbody:
+                    print(f"基金 {fund_code} 第{page}页: 表格为空")
+                    break
+                
+                rows = tbody.find_all('tr')
+                if not rows:
+                    print(f"基金 {fund_code} 第{page}页: 没有数据行")
+                    break
+                
+                page_has_valid_data = False
+                
+                for row in rows:
                     try:
-                        # 解析日期 - 尝试多个可能的字段名
-                        date_str = record.get('FSRQ') or record.get('fbrq') or record.get('date') or ''
+                        cols = row.find_all('td')
+                        if len(cols) < 4:
+                            continue
+                        
+                        # 解析日期
+                        date_str = cols[0].get_text(strip=True)
                         if not date_str:
                             continue
                         
-                        # 将日期字符串转换为日期对象
+                        # 验证日期格式
                         try:
-                            if len(date_str) == 10:  # 格式: YYYY-MM-DD
-                                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                            else:
-                                continue
+                            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
                         except ValueError:
                             continue
                         
                         # 检查是否在指定天数范围内
                         days_ago = (datetime.now() - date_obj).days
                         if days_ago > days:
-                            # 已经超出天数范围，可以停止抓取
+                            # 已经超出天数范围，停止抓取
                             page = max_pages + 1
                             break
                         
-                        # 解析净值数据 - 尝试多个可能的字段名
+                        page_has_valid_data = True
+                        
+                        # 解析单位净值
                         unit_net_value = 0.0
                         try:
-                            unit_net_value = float(record.get('DWJZ') or record.get('dwjz') or record.get('unit_net_value') or 0)
-                        except (ValueError, TypeError):
+                            unit_net_value_str = cols[1].get_text(strip=True)
+                            unit_net_value = float(unit_net_value_str)
+                        except (ValueError, IndexError):
                             pass
                         
+                        # 解析累计净值
                         accumulated_net_value = 0.0
                         try:
-                            accumulated_net_value = float(record.get('LJJZ') or record.get('ljjz') or record.get('accumulated_net_value') or 0)
-                        except (ValueError, TypeError):
+                            accumulated_net_value_str = cols[2].get_text(strip=True)
+                            accumulated_net_value = float(accumulated_net_value_str)
+                        except (ValueError, IndexError):
                             pass
                         
-                        daily_growth_rate = 0.0
+                        # 解析增长率
+                        growth_rate = '0%'
                         try:
-                            daily_growth_rate = float(record.get('JZRQ') or record.get('jzrq') or record.get('daily_growth_rate') or 0)
-                        except (ValueError, TypeError):
+                            growth_rate = cols[3].get_text(strip=True)
+                            if not growth_rate or growth_rate == '':
+                                growth_rate = '0%'
+                        except IndexError:
                             pass
                         
-                        growth_rate = record.get('SUNRISERANGE') or record.get('sunriserange') or record.get('growth_rate') or '0%'
-                        if isinstance(growth_rate, (int, float)):
-                            growth_rate = f"{growth_rate}%"
-                        growth_rate = str(growth_rate).strip()
-                        
+                        # 构建历史记录
                         history_record = {
                             'fund_code': fund_code,
                             'date': date_str,
                             'unit_net_value': unit_net_value,
                             'accumulated_net_value': accumulated_net_value,
-                            'daily_growth_rate': daily_growth_rate,
                             'growth_rate': growth_rate,
                         }
                         history_data.append(history_record)
+                        
                     except Exception as e:
                         print(f"解析历史记录时出错: {e}")
                         continue
+                
+                # 如果本页没有有效数据，停止抓取
+                if not page_has_valid_data:
+                    break
                 
                 page += 1
                 time.sleep(self.delay)
@@ -574,6 +602,8 @@ class FundScraper:
                 
         except Exception as e:
             print(f"获取基金历史数据失败: {fund_code}, 错误: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def get_multiple_funds_history(self, fund_codes: List[str], days: int = 30) -> Dict[str, List[Dict]]:
