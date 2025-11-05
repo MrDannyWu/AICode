@@ -44,11 +44,16 @@ class FundScraper:
             
         Returns:
             Response对象或None
+            
+        Raises:
+            requests.exceptions.HTTPError: HTTP错误（如404）
         """
         try:
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
             return response
+        except requests.exceptions.HTTPError:
+            raise
         except requests.RequestException as e:
             print(f"请求失败: {url}, 错误: {e}")
             return None
@@ -92,9 +97,130 @@ class FundScraper:
                 'status': data.get('isrising', ''),
             }
             
+            print(f"基金 {fund_code} 使用实时估值API成功获取数据")
             return info
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                print(f"实时估值API不支持基金 {fund_code}（404错误），尝试使用备用数据源...")
+                return self.get_fund_from_detail_page(fund_code)
+            else:
+                print(f"API请求失败: {fund_code}, 状态码: {e.response.status_code}")
+                return None
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             print(f"解析基金信息失败: {fund_code}, 错误: {e}")
+            return None
+
+    def get_fund_from_detail_page(self, fund_code: str) -> Optional[Dict]:
+        """
+        从基金详情页获取基金数据（备用方案）
+        用于当实时估值API不可用时的降级方案
+        
+        Args:
+            fund_code: 基金代码
+            
+        Returns:
+            包含基金信息的字典
+        """
+        time.sleep(self.delay)
+        
+        url = f"http://fund.eastmoney.com/{fund_code}.html"
+        
+        try:
+            response = self._request(url)
+            if not response:
+                print(f"无法访问基金详情页: {fund_code}")
+                return None
+            
+            soup = BeautifulSoup(response.content, 'lxml')
+            
+            info = {'fund_code': fund_code}
+            
+            # 获取基金名称 - 尝试多个选择器
+            fund_name_elem = soup.select_one('.fundDetail-tit')
+            if not fund_name_elem:
+                fund_name_elem = soup.select_one('h1.title')
+            if not fund_name_elem:
+                fund_name_elem = soup.select_one('div.title h1')
+            
+            if fund_name_elem:
+                info['fund_name'] = fund_name_elem.get_text(strip=True)
+            else:
+                info['fund_name'] = ''
+            
+            # 获取单位净值 - 查找包含净值的数字
+            unit_net_value = 0.0
+            daily_growth_rate = 0.0
+            update_date = ''
+            
+            # 尝试从数据表中获取净值信息
+            data_nums = soup.select_one('.dataNums')
+            if data_nums:
+                # 查找所有的数字元素
+                numbers = data_nums.select('.ui-font-large')
+                if numbers:
+                    try:
+                        unit_net_value = float(numbers[0].get_text(strip=True))
+                    except (ValueError, IndexError):
+                        pass
+                
+                # 查找日增长率
+                growth_elems = data_nums.select('.ui-font-large.red, .ui-font-large.green')
+                if len(growth_elems) > 1:
+                    try:
+                        growth_text = growth_elems[1].get_text(strip=True)
+                        # 移除%符号
+                        growth_text = growth_text.rstrip('%')
+                        daily_growth_rate = float(growth_text)
+                    except (ValueError, IndexError):
+                        pass
+            
+            # 如果未找到，尝试从其他位置获取净值信息
+            if unit_net_value == 0.0:
+                # 查找包含净值的所有表格
+                tables = soup.find_all('table')
+                for table in tables:
+                    rows = table.find_all('tr')
+                    for row in rows:
+                        cols = row.find_all(['td', 'th'])
+                        if len(cols) >= 2:
+                            header = cols[0].get_text(strip=True)
+                            value = cols[1].get_text(strip=True)
+                            
+                            if '单位净值' in header or '最新净值' in header:
+                                try:
+                                    unit_net_value = float(value)
+                                except ValueError:
+                                    pass
+                            elif '日增长率' in header or '涨幅' in header or '日增幅' in header:
+                                try:
+                                    value_clean = value.rstrip('%')
+                                    daily_growth_rate = float(value_clean)
+                                except ValueError:
+                                    pass
+                            elif '净值日期' in header or '更新日期' in header:
+                                update_date = value
+            
+            # 如果仍未找到净值，尝试从页面的其他部分查找
+            if unit_net_value == 0.0:
+                # 查找所有包含数字的元素
+                all_texts = soup.get_text()
+                match = re.search(r'单位净值[：:]\s*([\d.]+)', all_texts)
+                if match:
+                    try:
+                        unit_net_value = float(match.group(1))
+                    except ValueError:
+                        pass
+            
+            info['unit_net_value'] = unit_net_value
+            info['daily_growth_rate'] = daily_growth_rate
+            info['update_date'] = update_date
+            info['accumulated_net_value'] = 0.0
+            info['status'] = ''
+            
+            print(f"基金 {fund_code} 使用备用数据源（详情页）成功获取数据")
+            return info
+        except Exception as e:
+            print(f"从备用数据源获取基金信息失败: {fund_code}, 错误: {e}")
             return None
 
     def get_fund_info_from_page(self, fund_code: str) -> Optional[Dict]:
