@@ -9,7 +9,7 @@ import time
 import csv
 import re
 from typing import List, Dict, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 from bs4 import BeautifulSoup
 from pathlib import Path
@@ -454,6 +454,209 @@ class FundScraper:
             DataFrame对象
         """
         return pd.DataFrame(data)
+
+    def get_fund_history(self, fund_code: str, days: int = 30) -> Optional[List[Dict]]:
+        """
+        获取基金历史净值数据
+        
+        Args:
+            fund_code: 基金代码
+            days: 获取最近N天的数据（默认30天）
+        
+        Returns:
+            历史净值数据列表，或None如果失败
+        """
+        time.sleep(self.delay)
+        
+        url = "http://fund.eastmoney.com/f10/F10DataApi.aspx"
+        
+        history_data = []
+        page = 1
+        
+        # 计算需要抓取的页数（每页最多49条记录）
+        # 假设每年252个交易日，pages需要能覆盖days天数的交易日
+        max_pages = max(1, (days // 49) + 2)
+        
+        try:
+            while page <= max_pages:
+                params = {
+                    'type': 'lsjz',
+                    'code': fund_code,
+                    'page': page,
+                    'per': 49
+                }
+                
+                response = self._request(url, params=params)
+                if not response:
+                    break
+                
+                # 解析JSON响应
+                try:
+                    data = response.json()
+                except json.JSONDecodeError:
+                    print(f"无法解析基金 {fund_code} 的历史数据")
+                    break
+                
+                # 提取净值数据
+                datas = data.get('Data', {}).get('LSJZList', [])
+                if not datas:
+                    break
+                
+                for record in datas:
+                    try:
+                        # 解析日期 - 尝试多个可能的字段名
+                        date_str = record.get('FSRQ') or record.get('fbrq') or record.get('date') or ''
+                        if not date_str:
+                            continue
+                        
+                        # 将日期字符串转换为日期对象
+                        try:
+                            if len(date_str) == 10:  # 格式: YYYY-MM-DD
+                                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                            else:
+                                continue
+                        except ValueError:
+                            continue
+                        
+                        # 检查是否在指定天数范围内
+                        days_ago = (datetime.now() - date_obj).days
+                        if days_ago > days:
+                            # 已经超出天数范围，可以停止抓取
+                            page = max_pages + 1
+                            break
+                        
+                        # 解析净值数据 - 尝试多个可能的字段名
+                        unit_net_value = 0.0
+                        try:
+                            unit_net_value = float(record.get('DWJZ') or record.get('dwjz') or record.get('unit_net_value') or 0)
+                        except (ValueError, TypeError):
+                            pass
+                        
+                        accumulated_net_value = 0.0
+                        try:
+                            accumulated_net_value = float(record.get('LJJZ') or record.get('ljjz') or record.get('accumulated_net_value') or 0)
+                        except (ValueError, TypeError):
+                            pass
+                        
+                        daily_growth_rate = 0.0
+                        try:
+                            daily_growth_rate = float(record.get('JZRQ') or record.get('jzrq') or record.get('daily_growth_rate') or 0)
+                        except (ValueError, TypeError):
+                            pass
+                        
+                        growth_rate = record.get('SUNRISERANGE') or record.get('sunriserange') or record.get('growth_rate') or '0%'
+                        if isinstance(growth_rate, (int, float)):
+                            growth_rate = f"{growth_rate}%"
+                        growth_rate = str(growth_rate).strip()
+                        
+                        history_record = {
+                            'fund_code': fund_code,
+                            'date': date_str,
+                            'unit_net_value': unit_net_value,
+                            'accumulated_net_value': accumulated_net_value,
+                            'daily_growth_rate': daily_growth_rate,
+                            'growth_rate': growth_rate,
+                        }
+                        history_data.append(history_record)
+                    except Exception as e:
+                        print(f"解析历史记录时出错: {e}")
+                        continue
+                
+                page += 1
+                time.sleep(self.delay)
+            
+            if history_data:
+                print(f"基金 {fund_code} 成功获取 {len(history_data)} 条历史数据")
+                return history_data
+            else:
+                print(f"未获取到基金 {fund_code} 的历史数据")
+                return None
+                
+        except Exception as e:
+            print(f"获取基金历史数据失败: {fund_code}, 错误: {e}")
+            return None
+
+    def get_multiple_funds_history(self, fund_codes: List[str], days: int = 30) -> Dict[str, List[Dict]]:
+        """
+        批量获取多个基金的历史数据
+        
+        Args:
+            fund_codes: 基金代码列表
+            days: 获取最近N天的数据
+            
+        Returns:
+            {fund_code: [历史数据列表]}
+        """
+        history_dict = {}
+        
+        total = len(fund_codes)
+        for idx, code in enumerate(fund_codes, 1):
+            print(f"[{idx}/{total}] 正在获取基金 {code} 的历史数据...")
+            history = self.get_fund_history(code, days=days)
+            if history:
+                history_dict[code] = history
+        
+        return history_dict
+
+    def save_history_to_csv(self, history_data: Union[Dict[str, List[Dict]], List[Dict]], filepath: str) -> bool:
+        """
+        保存历史数据到CSV文件
+        
+        Args:
+            history_data: 历史数据字典或列表
+            filepath: 文件路径
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            # 合并数据
+            if isinstance(history_data, dict):
+                combined_data = []
+                for fund_code, data_list in history_data.items():
+                    combined_data.extend(data_list)
+            else:
+                combined_data = history_data
+            
+            if not combined_data:
+                print("没有数据可保存")
+                return False
+            
+            df = pd.DataFrame(combined_data)
+            
+            # 确保目录存在
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+            
+            df.to_csv(filepath, index=False, encoding='utf-8-sig')
+            print(f"历史数据已保存到: {filepath}")
+            return True
+        except Exception as e:
+            print(f"保存CSV文件失败: {e}")
+            return False
+
+    def save_history_to_json(self, history_data: Union[Dict[str, List[Dict]], List[Dict]], filepath: str) -> bool:
+        """
+        保存历史数据到JSON文件
+        
+        Args:
+            history_data: 历史数据字典或列表
+            filepath: 文件路径
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            # 确保目录存在
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=2)
+            
+            print(f"历史数据已保存到: {filepath}")
+            return True
+        except Exception as e:
+            print(f"保存JSON文件失败: {e}")
+            return False
 
 
 def main():

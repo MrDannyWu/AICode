@@ -24,6 +24,12 @@
 - 成立以来收益率
 - 3年、5年收益率
 
+#### 4. 历史净值数据
+- 历史单位净值
+- 历史累计净值
+- 历史日增长率
+- 支持按天数筛选（如最近7天、30天、90天等）
+
 ### 输出格式
 - **CSV格式** - 易于导入Excel和其他工具
 - **JSON格式** - 适合程序化处理
@@ -78,6 +84,16 @@ python scrape_funds.py -c 110022 -o output.json
 
 # 完整示例：获取详细信息并保存为JSON
 python scrape_funds.py -c 110022 161725 163402 -d -o funds_data.json
+
+# 获取历史数据
+python scrape_funds.py -c 110022 --history 30  # 最近30天
+python scrape_funds.py -c 110022 --history 90  # 最近90天
+
+# 批量抓取历史数据
+python scrape_funds.py -f funds.txt --history 30 -o history.csv
+
+# 交互模式（不提供参数）
+python scrape_funds.py
 ```
 
 ## 详细使用说明
@@ -88,6 +104,7 @@ python scrape_funds.py -c 110022 161725 163402 -d -o funds_data.json
 -c, --codes CODES           基金代码列表 (例: 110022 161725 163402)
 -f, --file FILE             读取基金代码的文件路径 (.txt 或 .json)
 -d, --detailed              获取详细信息（基金公司、经理等）
+--history DAYS              获取历史净值数据，指定天数 (例: 30, 90)
 -t, --timeout TIMEOUT       请求超时时间，秒（默认: 10）
 -l, --delay DELAY           请求间隔时间，秒（默认: 0.5）
 -o, --output OUTPUT         输出文件路径 (.csv 或 .json)
@@ -166,6 +183,34 @@ scraper.save_to_csv(df_sorted, 'sorted_funds.csv')
 scraper.save_to_json(results, 'funds.json')
 ```
 
+#### 历史数据抓取
+
+```python
+from fund_scraper import FundScraper
+
+scraper = FundScraper(timeout=10, delay=0.5)
+
+# 获取单个基金的历史数据
+history = scraper.get_fund_history('110022', days=30)
+print(f"获取 {len(history)} 条历史记录")
+
+# 批量获取多个基金的历史数据
+fund_codes = ['110022', '161725', '163402']
+history_data = scraper.get_multiple_funds_history(fund_codes, days=30)
+
+# 保存为CSV
+scraper.save_history_to_csv(history_data, 'fund_history.csv')
+
+# 保存为JSON
+scraper.save_history_to_json(history_data, 'fund_history.json')
+
+# 分析历史数据
+for fund_code, records in history_data.items():
+    df = pd.DataFrame(records)
+    print(f"\n基金 {fund_code}:")
+    print(df[['date', 'unit_net_value', 'daily_growth_rate']])
+```
+
 ### 配置文件格式
 
 #### JSON格式 (funds_example.json)
@@ -221,6 +266,50 @@ fund_code,fund_name,unit_net_value,accumulated_net_value,daily_growth_rate,updat
     "update_date": "2024-01-15"
   }
 ]
+```
+
+### 历史数据格式
+
+#### CSV格式
+```
+fund_code,date,unit_net_value,accumulated_net_value,daily_growth_rate,growth_rate
+110022,2025-01-15,5.8234,5.8234,0,1.23%
+110022,2025-01-14,5.7546,5.7546,0,-0.56%
+161725,2025-01-15,2.1567,2.1567,0,0.45%
+```
+
+#### JSON格式
+```json
+{
+  "110022": [
+    {
+      "fund_code": "110022",
+      "date": "2025-01-15",
+      "unit_net_value": 5.8234,
+      "accumulated_net_value": 5.8234,
+      "daily_growth_rate": 0,
+      "growth_rate": "1.23%"
+    },
+    {
+      "fund_code": "110022",
+      "date": "2025-01-14",
+      "unit_net_value": 5.7546,
+      "accumulated_net_value": 5.7546,
+      "daily_growth_rate": 0,
+      "growth_rate": "-0.56%"
+    }
+  ],
+  "161725": [
+    {
+      "fund_code": "161725",
+      "date": "2025-01-15",
+      "unit_net_value": 2.1567,
+      "accumulated_net_value": 2.1567,
+      "daily_growth_rate": 0,
+      "growth_rate": "0.45%"
+    }
+  ]
+}
 ```
 
 ## 常见基金代码参考
@@ -321,6 +410,15 @@ MIT License
 作者不对由使用本脚本造成的任何问题负责。
 
 ## 更新日志
+
+### v1.1.0 (2025-01-20)
+- 添加历史净值数据抓取功能
+- 支持按天数筛选历史数据
+- 添加批量抓取历史数据的方法
+- 支持命令行参数 `--history` 指定天数
+- 添加交互式选择模式
+- 添加历史数据的CSV/JSON导出方法
+- 更新文档和使用示例
 
 ### v1.0.0 (2024-01-15)
 - 初始发布

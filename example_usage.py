@@ -221,6 +221,59 @@ def example_8_etf_funds():
         print("未能获取任何数据")
 
 
+def example_9_fund_history():
+    """示例9：获取基金历史净值数据"""
+    print("\n" + "=" * 60)
+    print("示例9：获取基金历史净值数据")
+    print("=" * 60)
+    
+    scraper = FundScraper(timeout=10, delay=0.5)
+    
+    # 获取单个基金的30天历史数据
+    print("\n获取基金 110022 最近30天的历史数据...")
+    history = scraper.get_fund_history('110022', days=30)
+    
+    if history:
+        print(f"\n成功获取 {len(history)} 条历史数据:")
+        print("\n最近5条记录：")
+        for record in history[:5]:
+            print(f"  日期: {record['date']}, 净值: {record['unit_net_value']}, 累计净值: {record['accumulated_net_value']}, 增长率: {record['growth_rate']}")
+    else:
+        print("未能获取历史数据")
+
+
+def example_10_multiple_funds_history():
+    """示例10：批量获取多个基金的历史数据"""
+    print("\n" + "=" * 60)
+    print("示例10：批量获取多个基金的历史数据")
+    print("=" * 60)
+    
+    scraper = FundScraper(timeout=10, delay=0.5)
+    
+    # 基金代码列表
+    fund_codes = ['110022', '161725']
+    
+    print(f"\n正在批量获取基金 {fund_codes} 最近7天的历史数据...")
+    history_data = scraper.get_multiple_funds_history(fund_codes, days=7)
+    
+    if history_data:
+        print(f"\n成功获取 {len(history_data)} 个基金的历史数据:")
+        
+        for fund_code, history_list in history_data.items():
+            print(f"\n基金 {fund_code}: {len(history_list)} 条历史记录")
+            for record in history_list[:3]:
+                print(f"  日期: {record['date']}, 净值: {record['unit_net_value']}, 增长率: {record['growth_rate']}")
+            if len(history_list) > 3:
+                print(f"  ... 更多记录")
+        
+        # 保存为CSV和JSON
+        print("\n保存历史数据...")
+        scraper.save_history_to_csv(history_data, 'fund_history.csv')
+        scraper.save_history_to_json(history_data, 'fund_history.json')
+    else:
+        print("未能获取任何历史数据")
+
+
 def main():
     """运行所有示例"""
     print("\n" + "=" * 60)
@@ -241,6 +294,10 @@ def main():
         # example_6_detailed_info()
         # example_7_error_handling()
         example_8_etf_funds()
+        
+        # 历史数据抓取示例
+        example_9_fund_history()
+        example_10_multiple_funds_history()
         
     except Exception as e:
         print(f"\n执行示例时出错: {e}")

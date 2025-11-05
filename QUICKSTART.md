@@ -55,6 +55,38 @@ scraper.save_to_csv(df, 'funds.csv')
 scraper.save_to_json(funds, 'funds.json')
 ```
 
+### 4. 获取历史数据（新功能！）
+
+```python
+from fund_scraper import FundScraper
+
+scraper = FundScraper()
+
+# 获取单个基金最近30天的历史数据
+history = scraper.get_fund_history('110022', days=30)
+print(f"获取 {len(history)} 条历史记录")
+
+# 批量获取多个基金的历史数据
+history_data = scraper.get_multiple_funds_history(['110022', '161725'], days=30)
+
+# 保存为CSV或JSON
+scraper.save_history_to_csv(history_data, 'history.csv')
+scraper.save_history_to_json(history_data, 'history.json')
+```
+
+或使用命令行：
+
+```bash
+# 获取最近30天的历史数据
+python scrape_funds.py -c 110022 --history 30
+
+# 保存为CSV
+python scrape_funds.py -c 110022 --history 30 -o fund_history.csv
+
+# 批量获取并保存
+python scrape_funds.py -f funds.txt --history 30 -o history.csv
+```
+
 ## 常用命令
 
 | 命令 | 说明 |
@@ -65,6 +97,9 @@ scraper.save_to_json(funds, 'funds.json')
 | `python scrape_funds.py -c 110022 -o fund.csv` | 保存为CSV |
 | `python scrape_funds.py -f funds.txt` | 从文件读取基金列表 |
 | `python scrape_funds.py -c 110022 -l 1.0` | 设置1秒延迟 |
+| `python scrape_funds.py -c 110022 --history 30` | 获取最近30天历史数据 |
+| `python scrape_funds.py -f funds.txt --history 90 -o history.csv` | 批量获取历史数据 |
+| `python scrape_funds.py` | 进入交互模式 |
 
 ## 常见基金代码
 
