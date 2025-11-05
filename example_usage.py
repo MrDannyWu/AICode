@@ -187,6 +187,40 @@ def example_7_error_handling():
     print(f"成功获取 {len(results)} 个有效基金的数据")
 
 
+def example_8_etf_funds():
+    """示例8：ETF基金抓取测试（包含404自动降级）"""
+    print("\n" + "=" * 60)
+    print("示例8：ETF基金抓取测试（包含404自动降级）")
+    print("=" * 60)
+    
+    scraper = FundScraper(timeout=10, delay=0.5)
+    
+    # 基金代码列表：包含普通基金和ETF
+    fund_codes = ['110022', '518600', '000001']
+    
+    print(f"\n正在批量抓取基金：{', '.join(fund_codes)}")
+    print("说明：518600是ETF基金，实时估值API返回404，会自动使用备用数据源")
+    
+    results = scraper.scrape_multiple_funds(fund_codes, detailed=False)
+    
+    if results:
+        print(f"\n成功获取 {len(results)} 个基金的数据:")
+        
+        df = scraper.to_dataframe(results)
+        print("\n基金数据汇总：")
+        print(df[['fund_code', 'fund_name', 'unit_net_value', 'daily_growth_rate', 'update_date']].to_string())
+        
+        print("\n各基金的详细信息：")
+        for result in results:
+            print(f"\n  基金代码: {result['fund_code']}")
+            print(f"  基金名称: {result['fund_name']}")
+            print(f"  单位净值: {result['unit_net_value']}")
+            print(f"  日增长率: {result['daily_growth_rate']}%")
+            print(f"  更新日期: {result['update_date']}")
+    else:
+        print("未能获取任何数据")
+
+
 def main():
     """运行所有示例"""
     print("\n" + "=" * 60)
@@ -206,6 +240,7 @@ def main():
         # 以下示例可选（更耗时或需要更多网络请求）
         # example_6_detailed_info()
         # example_7_error_handling()
+        example_8_etf_funds()
         
     except Exception as e:
         print(f"\n执行示例时出错: {e}")
