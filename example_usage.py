@@ -274,6 +274,48 @@ def example_10_multiple_funds_history():
         print("未能获取任何历史数据")
 
 
+def example_11_test_different_fund_types():
+    """示例11：测试不同类型基金的历史数据"""
+    print("\n" + "=" * 60)
+    print("示例11：测试不同类型基金的历史数据")
+    print("=" * 60)
+    
+    scraper = FundScraper(timeout=10, delay=0.5)
+    
+    # 测试不同类型的基金
+    test_funds = {
+        '110022': '易方达消费行业（普通开放式基金）',
+        '518660': '黄金ETF（场内基金）',
+        '000001': '华夏成长（混合型基金）'
+    }
+    
+    print("\n测试不同类型基金的历史数据抓取...")
+    
+    for fund_code, description in test_funds.items():
+        print(f"\n{'='*50}")
+        print(f"测试基金: {fund_code} - {description}")
+        print('='*50)
+        
+        history = scraper.get_fund_history(fund_code, days=30)
+        
+        if history:
+            print(f"✓ 成功获取 {len(history)} 条记录")
+            print(f"  最新日期: {history[0]['date']}")
+            print(f"  最新净值: {history[0]['unit_net_value']}")
+            print(f"  增长率: {history[0]['growth_rate']}")
+            
+            if len(history) >= 3:
+                print("\n  前3条记录:")
+                for i, record in enumerate(history[:3], 1):
+                    print(f"    {i}. 日期: {record['date']}, 净值: {record['unit_net_value']}, 增长率: {record['growth_rate']}")
+        else:
+            print(f"✗ 获取失败")
+    
+    print("\n" + "="*60)
+    print("测试完成")
+    print("="*60)
+
+
 def main():
     """运行所有示例"""
     print("\n" + "=" * 60)
@@ -298,6 +340,7 @@ def main():
         # 历史数据抓取示例
         example_9_fund_history()
         example_10_multiple_funds_history()
+        example_11_test_different_fund_types()
         
     except Exception as e:
         print(f"\n执行示例时出错: {e}")
