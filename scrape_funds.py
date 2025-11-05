@@ -1,0 +1,190 @@
+"""
+基金数据抓取命令行工具
+支持通过命令行参数或配置文件批量抓取基金数据
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import List
+import pandas as pd
+
+from fund_scraper import FundScraper
+
+
+def load_fund_codes_from_file(filepath: str) -> List[str]:
+    """
+    从文件加载基金代码列表
+    
+    支持格式：
+    - 纯文本文件，每行一个基金代码
+    - JSON文件，包含funds列表
+    
+    Args:
+        filepath: 文件路径
+        
+    Returns:
+        基金代码列表
+    """
+    filepath = Path(filepath)
+    
+    if not filepath.exists():
+        print(f"文件不存在: {filepath}")
+        return []
+    
+    try:
+        if filepath.suffix.lower() == '.json':
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict) and 'funds' in data:
+                    return data['funds']
+                elif isinstance(data, list):
+                    return data
+        else:
+            # 纯文本文件
+            with open(filepath, 'r', encoding='utf-8') as f:
+                codes = [line.strip() for line in f if line.strip()]
+                return codes
+    except Exception as e:
+        print(f"读取文件失败: {e}")
+        return []
+    
+    return []
+
+
+def main():
+    """主函数"""
+    
+    parser = argparse.ArgumentParser(
+        description='基金数据抓取工具 - 天天基金网(eastmoney.com)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  # 抓取单个基金
+  python scrape_funds.py -c 110022
+  
+  # 抓取多个基金
+  python scrape_funds.py -c 110022 161725 163402
+  
+  # 从文件读取基金列表
+  python scrape_funds.py -f funds.txt
+  python scrape_funds.py -f funds.json
+  
+  # 获取详细信息并保存为JSON
+  python scrape_funds.py -c 110022 -d -o funds.json
+  
+  # 自定义输出格式和位置
+  python scrape_funds.py -c 110022 -f output/my_funds.csv
+        """
+    )
+    
+    parser.add_argument(
+        '-c', '--codes',
+        nargs='+',
+        help='基金代码列表 (例: 110022 161725 163402)'
+    )
+    
+    parser.add_argument(
+        '-f', '--file',
+        type=str,
+        help='读取基金代码的文件路径 (支持 .txt 和 .json 格式)'
+    )
+    
+    parser.add_argument(
+        '-d', '--detailed',
+        action='store_true',
+        help='获取详细信息（包括基金公司、经理等）'
+    )
+    
+    parser.add_argument(
+        '-t', '--timeout',
+        type=int,
+        default=10,
+        help='请求超时时间（秒，默认: 10）'
+    )
+    
+    parser.add_argument(
+        '-l', '--delay',
+        type=float,
+        default=0.5,
+        help='请求间隔时间（秒，默认: 0.5）'
+    )
+    
+    parser.add_argument(
+        '-o', '--output',
+        type=str,
+        help='输出文件路径 (.csv 或 .json，默认: 输出到控制台)'
+    )
+    
+    args = parser.parse_args()
+    
+    # 收集基金代码
+    fund_codes = []
+    
+    if args.codes:
+        fund_codes.extend(args.codes)
+    
+    if args.file:
+        file_codes = load_fund_codes_from_file(args.file)
+        fund_codes.extend(file_codes)
+    
+    if not fund_codes:
+        print("错误: 未指定基金代码")
+        print("使用 -h 或 --help 查看帮助信息")
+        sys.exit(1)
+    
+    # 去重
+    fund_codes = list(set(fund_codes))
+    
+    print("=" * 60)
+    print(f"基金数据抓取工具")
+    print("=" * 60)
+    print(f"待抓取基金数量: {len(fund_codes)}")
+    print(f"基金代码: {', '.join(fund_codes)}")
+    print(f"详细信息: {'是' if args.detailed else '否'}")
+    print("=" * 60)
+    
+    # 创建爬虫
+    scraper = FundScraper(timeout=args.timeout, delay=args.delay)
+    
+    # 抓取数据
+    results = scraper.scrape_multiple_funds(fund_codes, detailed=args.detailed)
+    
+    if not results:
+        print("未获取到任何数据")
+        sys.exit(1)
+    
+    # 输出结果
+    print("\n" + "=" * 60)
+    print("抓取结果")
+    print("=" * 60)
+    
+    df = scraper.to_dataframe(results)
+    
+    # 选择显示的列
+    display_columns = [
+        'fund_code', 'fund_name', 'unit_net_value', 
+        'accumulated_net_value', 'daily_growth_rate', 'update_date'
+    ]
+    
+    # 过滤存在的列
+    display_columns = [col for col in display_columns if col in df.columns]
+    
+    print(df[display_columns].to_string(index=False))
+    
+    # 保存到文件
+    if args.output:
+        if args.output.endswith('.csv'):
+            scraper.save_to_csv(df, args.output)
+        elif args.output.endswith('.json'):
+            scraper.save_to_json(results, args.output)
+        else:
+            print("错误: 不支持的文件格式，请使用 .csv 或 .json")
+            sys.exit(1)
+    
+    print("\n抓取完成")
+
+
+if __name__ == "__main__":
+    main()
